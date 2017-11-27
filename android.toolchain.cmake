@@ -12,14 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Configurable variables.
+# Modeled after the ndk-build system.
+# For any variables defined in:
+#         https://developer.android.com/ndk/guides/android_mk.html
+#         https://developer.android.com/ndk/guides/application_mk.html
+# if it makes sense for CMake, then replace LOCAL, APP, or NDK with ANDROID, and
+# we have that variable below.
+# The exception is ANDROID_TOOLCHAIN vs NDK_TOOLCHAIN_VERSION.
+# Since we only have one version of each gcc and clang, specifying a version
+# doesn't make much sense.
+#
+# ANDROID_NDK
+# ANDROID_TOOLCHAIN
+# ANDROID_ABI
+# ANDROID_PLATFORM
+# ANDROID_STL
+# ANDROID_PIE
+# ANDROID_CPP_FEATURES
+# ANDROID_ALLOW_UNDEFINED_SYMBOLS
+# ANDROID_ARM_MODE
+# ANDROID_ARM_NEON
+# ANDROID_DISABLE_NO_EXECUTE
+# ANDROID_DISABLE_RELRO
+# ANDROID_DISABLE_FORMAT_STRING_CHECKS
+# ANDROID_CCACHE
+
 cmake_minimum_required(VERSION 3.6.0)
 
-# Subsequent toolchain loading is not really needed.
-if(DEFINED CMAKE_CROSSCOMPILING)
-	return()
-endif()
+set(ANDROID_NDK_REVISION 12)
 
 # Touch toolchain variable to suppress "unused variable" warning.
+# This happens if CMake is invoked with the same command line the second time.
 if(CMAKE_TOOLCHAIN_FILE)
 endif()
 
@@ -129,18 +153,18 @@ endif()
 if(NOT ANDROID_ABI)
 	set(ANDROID_ABI armeabi-v7a)
 endif()
-if(ANDROID_PLATFORM MATCHES "^android-(10|11)$")
+if(ANDROID_PLATFORM MATCHES "^android-([0-8]|10|11)$")
 	set(ANDROID_PLATFORM android-9)
 elseif(ANDROID_PLATFORM STREQUAL android-20)
 	set(ANDROID_PLATFORM android-19)
 elseif(NOT ANDROID_PLATFORM)
-	if(ANDROID_ABI MATCHES "64(-v8a)?$")
-		set(ANDROID_PLATFORM android-21)
-	else()
-		set(ANDROID_PLATFORM android-9)
-	endif()
+	set(ANDROID_PLATFORM android-9)
 endif()
 string(REPLACE "android-" "" ANDROID_PLATFORM_LEVEL ${ANDROID_PLATFORM})
+if(ANDROID_ABI MATCHES "64(-v8a)?$" AND ANDROID_PLATFORM_LEVEL LESS 21)
+	set(ANDROID_PLATFORM android-21)
+	set(ANDROID_PLATFORM_LEVEL 21)
+endif()
 if(NOT ANDROID_STL)
 	set(ANDROID_STL gnustl_static)
 endif()
@@ -154,31 +178,6 @@ endif()
 if(NOT ANDROID_ARM_MODE)
 	set(ANDROID_ARM_MODE thumb)
 endif()
-
-# Configurable variables.
-# Modeled after the ndk-build system.
-# For any variables defined in:
-#         https://developer.android.com/ndk/guides/android_mk.html
-#         https://developer.android.com/ndk/guides/application_mk.html
-# if it makes sense for CMake, then replace LOCAL, APP, or NDK with ANDROID, and
-# we have that variable below.
-# The exception is ANDROID_TOOLCHAIN vs NDK_TOOLCHAIN_VERSION.
-# Since we only have one version of each gcc and clang, specifying a version
-# doesn't make much sense.
-set(ANDROID_NDK                          "${ANDROID_NDK}"                          CACHE FILEPATH "Android NDK")
-set(ANDROID_TOOLCHAIN                    "${ANDROID_TOOLCHAIN}"                    CACHE STRING   "Android toolchain")
-set(ANDROID_ABI                          "${ANDROID_ABI}"                          CACHE STRING   "Android ABI")
-set(ANDROID_PLATFORM                     "${ANDROID_PLATFORM}"                     CACHE STRING   "Android platform")
-set(ANDROID_STL                          "${ANDROID_STL}"                          CACHE STRING   "Android STL")
-set(ANDROID_PIE                          "${ANDROID_PIE}"                          CACHE BOOL     "Android PIE")
-set(ANDROID_CPP_FEATURES                 "${ANDROID_CPP_FEATURES}"                 CACHE STRING   "Android C++ features")
-set(ANDROID_ALLOW_UNDEFINED_SYMBOLS      "${ANDROID_ALLOW_UNDEFINED_SYMBOLS}"      CACHE BOOL     "Android allow undefined symbols")
-set(ANDROID_ARM_MODE                     "${ANDROID_ARM_MODE}"                     CACHE STRING   "Android ARM mode")
-set(ANDROID_ARM_NEON                     "${ANDROID_ARM_NEON}"                     CACHE BOOL     "Android ARM NEON")
-set(ANDROID_DISABLE_NO_EXECUTE           "${ANDROID_DISABLE_NO_EXECUTE}"           CACHE BOOL     "Android disable no execute")
-set(ANDROID_DISABLE_RELRO                "${ANDROID_DISABLE_RELRO}"                CACHE BOOL     "Android disable relocation read-only")
-set(ANDROID_DISABLE_FORMAT_STRING_CHECKS "${ANDROID_DISABLE_FORMAT_STRING_CHECKS}" CACHE BOOL     "Android disable format string checks")
-set(ANDROID_CCACHE                       "${ANDROID_CCACHE}"                       CACHE FILEPATH "Android ccache")
 
 # Export configurable variables for the try_compile() command.
 set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES
@@ -202,9 +201,9 @@ set(ANDROID TRUE)
 set(CMAKE_SYSTEM_NAME Android)
 set(CMAKE_SYSTEM_VERSION ${ANDROID_PLATFORM_LEVEL})
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
-set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 
 # ABI.
 set(CMAKE_ANDROID_ARCH_ABI ${ANDROID_ABI})
@@ -339,9 +338,12 @@ if(NOT IS_DIRECTORY "${ANDROID_NDK}"
 elseif(NOT IS_DIRECTORY "${ANDROID_NDK}/platforms/${ANDROID_PLATFORM}")
 	message(FATAL_ERROR "Invalid Android platform: ${ANDROID_PLATFORM}.")
 elseif(NOT IS_DIRECTORY "${CMAKE_SYSROOT}")
-	message(FATAL_ERROR "Invalid Android ABI for platform ${ANDROID_PLATFORM}: ${ANDROID_ABI}.")
+	message(FATAL_ERROR "Invalid Android sysroot: ${CMAKE_SYSROOT}.")
 endif()
-set(ANDROID_NDK_REVISION 12)
+# Check if source.properties file exists.
+if(NOT EXISTS "${ANDROID_NDK}/source.properties")
+	message(FATAL_ERROR "Missing file: ${ANDROID_NDK}/source.properties. Please use NDK r12+.")
+endif()
 file(READ "${ANDROID_NDK}/source.properties" ANDROID_NDK_SOURCE_PROPERTIES)
 set(ANDROID_NDK_SOURCE_PROPERTIES_REGEX
 	"^Pkg\\.Desc = Android NDK\nPkg\\.Revision = ([0-9]+\\.[0-9]+\\.[0-9]+(-beta[0-9]+)?)\n$")
@@ -471,9 +473,12 @@ if(ANDROID_ABI STREQUAL armeabi AND NOT ANDROID_STL MATCHES "^(none|system)$")
 	list(APPEND ANDROID_CXX_STANDARD_LIBRARIES
 		-latomic)
 endif()
-string(REPLACE ";" " " ANDROID_CXX_STANDARD_LIBRARIES "${ANDROID_CXX_STANDARD_LIBRARIES}")
-set(CMAKE_C_STANDARD_LIBRARIES "-lm")
-set(CMAKE_CXX_STANDARD_LIBRARIES "${ANDROID_CXX_STANDARD_LIBRARIES}")
+set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lm")
+set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "${CMAKE_C_STANDARD_LIBRARIES_INIT}")
+if(ANDROID_CXX_STANDARD_LIBRARIES)
+	string(REPLACE ";" "\" \"" ANDROID_CXX_STANDARD_LIBRARIES "\"${ANDROID_CXX_STANDARD_LIBRARIES}\"")
+	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "${CMAKE_CXX_STANDARD_LIBRARIES_INIT} ${ANDROID_CXX_STANDARD_LIBRARIES}")
+endif()
 
 # Configuration specific flags.
 if(ANDROID_PIE)
@@ -507,7 +512,7 @@ if(ANDROID_ABI MATCHES "armeabi")
 	else()
 		message(FATAL_ERROR "Invalid Android ARM mode: ${ANDROID_ARM_MODE}.")
 	endif()
-	if(ANDROID_STL STREQUAL armeabi-v7a AND ANDROID_ARM_NEON)
+	if(ANDROID_ABI STREQUAL armeabi-v7a AND ANDROID_ARM_NEON)
 		list(APPEND ANDROID_COMPILER_FLAGS
 			-mfpu=neon)
 	endif()
@@ -522,6 +527,14 @@ else()
 		-Wa,--noexecstack)
 	list(APPEND ANDROID_LINKER_FLAGS
 		-Wl,-z,noexecstack)
+endif()
+if(ANDROID_TOOLCHAIN STREQUAL clang)
+	# CMake automatically forwards all compiler flags to the linker,
+	# and clang doesn't like having -Wa flags being used for linking.
+	# To prevent CMake from doing this would require meddling with
+	# the CMAKE_<LANG>_COMPILE_OBJECT rules, which would get quite messy.
+	list(APPEND ANDROID_LINKER_FLAGS
+		-Qunused-arguments)
 endif()
 if(ANDROID_DISABLE_RELRO)
 	list(APPEND ANDROID_LINKER_FLAGS
@@ -539,39 +552,43 @@ else()
 endif()
 
 # Convert these lists into strings.
-string(REPLACE ";" " " ANDROID_COMPILER_FLAGS            "${ANDROID_COMPILER_FLAGS}")
-string(REPLACE ";" " " ANDROID_COMPILER_FLAGS_CXX        "${ANDROID_COMPILER_FLAGS_CXX}")
-string(REPLACE ";" " " ANDROID_COMPILER_FLAGS_DEBUG      "${ANDROID_COMPILER_FLAGS_DEBUG}")
-string(REPLACE ";" " " ANDROID_COMPILER_FLAGS_RELEASE    "${ANDROID_COMPILER_FLAGS_RELEASE}")
-string(REPLACE ";" " " ANDROID_LINKER_FLAGS              "${ANDROID_LINKER_FLAGS}")
-string(REPLACE ";" " " ANDROID_LINKER_FLAGS_EXE          "${ANDROID_LINKER_FLAGS_EXE}")
+string(REPLACE ";" " " ANDROID_COMPILER_FLAGS         "${ANDROID_COMPILER_FLAGS}")
+string(REPLACE ";" " " ANDROID_COMPILER_FLAGS_CXX     "${ANDROID_COMPILER_FLAGS_CXX}")
+string(REPLACE ";" " " ANDROID_COMPILER_FLAGS_DEBUG   "${ANDROID_COMPILER_FLAGS_DEBUG}")
+string(REPLACE ";" " " ANDROID_COMPILER_FLAGS_RELEASE "${ANDROID_COMPILER_FLAGS_RELEASE}")
+string(REPLACE ";" " " ANDROID_LINKER_FLAGS           "${ANDROID_LINKER_FLAGS}")
+string(REPLACE ";" " " ANDROID_LINKER_FLAGS_EXE       "${ANDROID_LINKER_FLAGS_EXE}")
 
 if(ANDROID_CCACHE)
-	set(CMAKE_C_COMPILER        "${ANDROID_CCACHE}"       CACHE FILEPATH "ccache")
-	set(CMAKE_CXX_COMPILER      "${ANDROID_CCACHE}"       CACHE FILEPATH "ccache")
-	set(CMAKE_C_COMPILER_ARG1   "${ANDROID_C_COMPILER}"   CACHE FILEPATH "C compiler")
-	set(CMAKE_CXX_COMPILER_ARG1 "${ANDROID_CXX_COMPILER}" CACHE FILEPATH "C++ compiler")
-else()
-	set(CMAKE_C_COMPILER        "${ANDROID_C_COMPILER}"   CACHE FILEPATH "C compiler")
-	set(CMAKE_CXX_COMPILER      "${ANDROID_CXX_COMPILER}" CACHE FILEPATH "C++ compiler")
+	set(CMAKE_C_COMPILER_LAUNCHER   "${ANDROID_CCACHE}")
+	set(CMAKE_CXX_COMPILER_LAUNCHER "${ANDROID_CCACHE}")
 endif()
-set(CMAKE_AR                  "${ANDROID_TOOLCHAIN_PREFIX}gcc-ar${ANDROID_TOOLCHAIN_SUFFIX}"  CACHE FILEPATH "ar")
-set(CMAKE_ASM_COMPILER        "${ANDROID_TOOLCHAIN_PREFIX}gcc${ANDROID_TOOLCHAIN_SUFFIX}"     CACHE FILEPATH "asm compiler")
-set(CMAKE_LINKER              "${ANDROID_TOOLCHAIN_PREFIX}ld${ANDROID_TOOLCHAIN_SUFFIX}"      CACHE FILEPATH "linker")
-set(CMAKE_NM                  "${ANDROID_TOOLCHAIN_PREFIX}nm${ANDROID_TOOLCHAIN_SUFFIX}"      CACHE FILEPATH "nm")
-set(CMAKE_OBJCOPY             "${ANDROID_TOOLCHAIN_PREFIX}objcopy${ANDROID_TOOLCHAIN_SUFFIX}" CACHE FILEPATH "objcopy")
-set(CMAKE_OBJDUMP             "${ANDROID_TOOLCHAIN_PREFIX}objdump${ANDROID_TOOLCHAIN_SUFFIX}" CACHE FILEPATH "objdump")
-set(CMAKE_RANLIB              "${ANDROID_TOOLCHAIN_PREFIX}ranlib${ANDROID_TOOLCHAIN_SUFFIX}"  CACHE FILEPATH "ranlib")
-set(CMAKE_STRIP               "${ANDROID_TOOLCHAIN_PREFIX}strip${ANDROID_TOOLCHAIN_SUFFIX}"   CACHE FILEPATH "strip")
-set(CMAKE_C_FLAGS             "" CACHE STRING "C flags")
-set(CMAKE_CXX_FLAGS           "" CACHE STRING "C++ flags")
-set(CMAKE_C_FLAGS_DEBUG       "" CACHE STRING "C flags debug")
-set(CMAKE_CXX_FLAGS_DEBUG     "" CACHE STRING "C++ flags debug")
-set(CMAKE_C_FLAGS_RELEASE     "" CACHE STRING "C flags release")
-set(CMAKE_CXX_FLAGS_RELEASE   "" CACHE STRING "C++ flags release")
-set(CMAKE_MODULE_LINKER_FLAGS "" CACHE STRING "module linker flags")
-set(CMAKE_SHARED_LINKER_FLAGS "" CACHE STRING "shared linker flags")
-set(CMAKE_EXE_LINKER_FLAGS    "" CACHE STRING "executable linker flags")
+set(CMAKE_C_COMPILER        "${ANDROID_C_COMPILER}")
+set(CMAKE_CXX_COMPILER      "${ANDROID_CXX_COMPILER}")
+set(_CMAKE_TOOLCHAIN_PREFIX "${ANDROID_TOOLCHAIN_PREFIX}")
+
+# Set or retrieve the cached flags.
+# This is necessary in case the user sets/changes flags in subsequent
+# configures. If we included the Android flags in here, they would get
+# overwritten.
+set(CMAKE_C_FLAGS ""
+	CACHE STRING "Flags used by the compiler during all build types.")
+set(CMAKE_CXX_FLAGS ""
+	CACHE STRING "Flags used by the compiler during all build types.")
+set(CMAKE_C_FLAGS_DEBUG ""
+	CACHE STRING "Flags used by the compiler during debug builds.")
+set(CMAKE_CXX_FLAGS_DEBUG ""
+	CACHE STRING "Flags used by the compiler during debug builds.")
+set(CMAKE_C_FLAGS_RELEASE ""
+	CACHE STRING "Flags used by the compiler during release builds.")
+set(CMAKE_CXX_FLAGS_RELEASE ""
+	CACHE STRING "Flags used by the compiler during release builds.")
+set(CMAKE_MODULE_LINKER_FLAGS ""
+	CACHE STRING "Flags used by the linker during the creation of modules.")
+set(CMAKE_SHARED_LINKER_FLAGS ""
+	CACHE STRING "Flags used by the linker during the creation of dll's.")
+set(CMAKE_EXE_LINKER_FLAGS ""
+	CACHE STRING "Flags used by the linker.")
 
 set(CMAKE_C_FLAGS             "${ANDROID_COMPILER_FLAGS} ${CMAKE_C_FLAGS}")
 set(CMAKE_CXX_FLAGS           "${ANDROID_COMPILER_FLAGS} ${ANDROID_COMPILER_FLAGS_CXX} ${CMAKE_CXX_FLAGS}")
